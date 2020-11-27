@@ -5,3 +5,4 @@
 
 
 ## Kubernetes
+- [Kops Standalone](./kops_standalone/README.md) - Example public deployment, with terraform (to create foundation) and kops cli to deploy Kubernetes
