@@ -6,6 +6,9 @@
 # Local .terraform directories
 **/.terraform/*
 
+*.pub
+key
+kops-tf
 # .tfstate files
 *.tfstate
 *.tfstate.*
