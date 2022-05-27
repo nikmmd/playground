@@ -1,0 +1,66 @@
+$router1_bootstrap = <<EOF
+
+#!/bin/vbash
+source /opt/vyatta/etc/functions/script-template
+
+configure
+set interface ethernet eth0 address dhcp
+set interface ethernet eth0 description 'EXTERNAL'
+
+set interface ethernet eth1 address '10.0.0.1/24' 
+set interface ethernet eth1 description 'INTERNAL'
+
+set nat source rule 100 outbound-interface 'eth0'
+set nat source rule 100 source address '10.0.0.0/24'
+set nat source rule 100 translation address masquerade
+
+set service dhcp-server shared-network-name LAN1 subnet 10.0.0.0/24 range 0 start 10.0.0.10
+set service dhcp-server shared-network-name LAN1 subnet 10.0.0.0/24 range 0 stop 10.0.0.245
+set service dhcp-server shared-network-name LAN1 subnet 10.0.0.0/24 default-router 10.0.0.1
+set service dhcp-server shared-network-name LAN1 subnet 10.0.0.0/24 domain-name example-0.org
+
+set service dns forwarding cache-size '0'
+set service dns forwarding listen-address '10.0.0.1'
+set service dns forwarding allow-from '10.0.0.0/24'
+
+commit
+save
+exit
+EOF
+
+$drop_default_gw = <<EOF
+ip route del 0/0
+EOF
+
+Vagrant.configure("2") do |config|
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "512"
+    vb.cpus = "1"
+  end
+
+  config.vm.define "vyos1" do |vyos1|
+    vyos1.vm.box = "vyos/current"
+    vyos1.vm.guest = "linux"  
+
+    # auto_config: false is needed because we don't want to automatically configure the adapter. eth1
+    vyos1.vm.network "private_network", ip: "10.0.0.1", virtualbox__intnet: "intnet1", auto_config: false, adapter:2
+
+    vyos1.vm.provision "shell", inline: $router1_bootstrap
+    vyos1.ssh.username = 'vyos'
+    vyos1.ssh.password = 'vyos'
+  end
+
+  config.vm.define "vm1" do |vm1|
+    vm1.vm.box = "ubuntu/bionic64"
+    vm1.vm.network "private_network", type: "dhcp", virtualbox__intnet: "intnet1"
+    vm1.vm.provision "shell", inline: $drop_default_gw
+  end
+
+  config.vm.define "vm2" do |vm2|
+    vm2.vm.box = "ubuntu/bionic64"
+    vm2.vm.network "private_network", type: "dhcp", virtualbox__intnet: "intnet1"
+    vm2.vm.provision "shell", inline: $drop_default_gw
+  end
+
+end
