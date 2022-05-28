@@ -1,0 +1,52 @@
+---
+- hosts: router
+  gather_facts: yes
+  become: true
+  tasks:
+    - name: demo
+      shell: |
+        echo "router"
+    - name: Print host
+      ansible.builtin.debug:
+        msg: "{{ hostvars[inventory_hostname]['eth1_gateway_address']}}"
+    - name: configure vyos
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+        configure
+
+        set interface ethernet eth0 address dhcp
+        set interface ethernet eth0 description 'EXTERNAL'
+        set interface ethernet eth1 address {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}/24
+        set interface ethernet eth1 description 'INTERNAL'
+
+        set nat source rule 100 outbound-interface 'eth0'
+        set nat source rule 100 source address {{ hostvars[inventory_hostname]['eth1_subnet'] }}
+        set nat source rule 100 translation address masquerade
+
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} range 0 start {{ hostvars[inventory_hostname]['eth1_dhcp_from'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} range 0 stop  {{ hostvars[inventory_hostname]['eth1_dhcp_to'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} default-router {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} domain-name example.org
+
+        set service dns forwarding cache-size '0'
+        set service dns forwarding listen-address {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}
+        set service dns forwarding allow-from {{ hostvars[inventory_hostname]['eth1_subnet'] }}
+
+        commit
+        save
+        exit
+      args:
+        executable: /bin/vbash
+
+
+- hosts: vm
+  become: true
+  # If doesn't exist ignore
+  ignore_errors: yes
+  tasks:
+    - name: Disable NAT & Route Everything through router
+      ansible.builtin.shell: |
+        ip route delete default via 10.0.2.2
+
+
+   
