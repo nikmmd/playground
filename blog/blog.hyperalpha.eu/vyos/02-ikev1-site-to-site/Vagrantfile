@@ -1,0 +1,65 @@
+Vagrant.configure("2") do |config|
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "512"
+    vb.cpus = "1"
+  end
+
+  config.vm.define "vyos1" do |vyos1|
+    vyos1.vm.box = "vyos/current"
+    vyos1.vm.guest = "linux"  
+
+    # auto_config: false is needed because we don't want to automatically configure the adapter. eth1
+    vyos1.vm.network "private_network", ip: "10.0.100.1", virtualbox__intnet: "intnet1", auto_config: false, adapter:2
+    #Simulate External IP eth2 (for s2s)
+    vyos1.vm.network "private_network", ip: "192.168.56.100", name: "vboxnet1", adapter:3, auto_config: false
+
+
+    vyos1.ssh.username = 'vyos'
+    vyos1.ssh.password = 'vyos'
+  end
+
+ config.vm.define "vyos2" do |vyos2|
+    vyos2.vm.box = "vyos/current"
+    vyos2.vm.guest = "linux"  
+    # auto_config: false is needed because we don't want to automatically configure the adapter. eth1
+    vyos2.vm.network "private_network", ip: "10.0.101.1", virtualbox__intnet: "intnet2", auto_config: false, adapter:2
+    vyos2.vm.network "private_network", ip: "192.168.56.101", name: "vboxnet1", adapter:3, auto_config: false
+
+  end
+
+  config.vm.define "vm1" do |vm1|
+    vm1.vm.box = "ubuntu/bionic64"
+    vm1.vm.network "private_network", type: "dhcp", virtualbox__intnet: "intnet1"
+  end
+
+  config.vm.define "vm2" do |vm2|
+    vm2.vm.box = "ubuntu/bionic64"
+    vm2.vm.network "private_network", type: "dhcp", virtualbox__intnet: "intnet2"
+  end
+
+  config.vm.provision "ansible" do |ansible|
+    ansible.verbose = "v"
+    ansible.playbook = "ansible/playbook.yml"
+    ansible.groups = {
+     "vm" => ["vm1", "vm2"],
+     "router"  => ["vyos[1:2]"],
+     "router:vars" => {"vpn_preshared_key" => "not-so-secret"}
+    }
+    ansible.host_vars = {
+      "vyos1" => {
+        "eth1_gateway_address" => "10.0.100.1",
+        "eth1_subnet" => "10.0.100.0/24",
+        "eth1_dhcp_from"  => "10.0.100.10",
+        "eth1_dhcp_to"  => "10.0.100.245",
+      },
+      "vyos2" => {
+        "eth1_gateway_address" => "10.0.101.1",
+        "eth1_subnet" => "10.0.101.0/24",
+        "eth1_dhcp_from"  => "10.0.101.10",
+        "eth1_dhcp_to"  => "10.0.101.245",
+      }
+    }
+  end
+
+end

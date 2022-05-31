@@ -1,0 +1,31 @@
+---
+#  {{ vpn_pre_shared_key }}
+
+- hosts: router
+  gather_facts: yes
+  become: true
+  vars:
+    color: blue
+  tasks:
+    # get other routers
+    - set_fact:
+        other_routers: "{{ groups.router|difference([inventory_hostname]) }}"
+        current_router: "{{ hostvars[inventory_hostname] }}"
+    - name: Print host
+      ansible.builtin.debug:
+        msg : | 
+          {%- for router in other_routers -%}
+            {{ hostvars[router]['eth1_subnet'] }}
+          {%- endfor -%}
+
+- hosts: vm
+  become: true
+  # If doesn't exist ignore
+  ignore_errors: yes
+  tasks:
+    - name: Disable NAT & Route Everything through router
+      ansible.builtin.shell: |
+        echo 1
+
+
+   
