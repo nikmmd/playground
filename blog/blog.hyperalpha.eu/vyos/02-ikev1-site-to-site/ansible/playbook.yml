@@ -33,12 +33,12 @@
 
         commit
         exit
-
-    #Simulates external IP
+    - name: reset the SSH_CONNECTION!!!!
+      meta: reset_connection 
     - name: Export TUN
       delay: 15
       set_fact:
-        tunnel_ip: "{{ ansible_eth2.ipv4.address }}"
+        tunnel_ip: "{{ ansible_eth2.ipv4.address }}"   #Simulates external IP
 
 #Configure S2S
 - hosts: router
