@@ -71,8 +71,12 @@
         set ike-group DEFAULT-IKE lifetime '3600'
         set ike-group DEFAULT-IKE proposal 1 encryption 'aes256'
         set ike-group DEFAULT-IKE proposal 1 hash 'sha256'
-        set interface 'eth2'
 
+        set ike-group DEFAULT-IKE dead-peer-detection action 'restart'
+        set ike-group DEFAULT-IKE dead-peer-detection interval '30'
+        set ike-group DEFAULT-IKE dead-peer-detection timeout '120'
+
+        set interface 'eth2'
 
         commit
         save
