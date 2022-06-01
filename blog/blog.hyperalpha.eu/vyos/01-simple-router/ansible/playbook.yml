@@ -38,7 +38,6 @@
       args:
         executable: /bin/vbash
 
-
 - hosts: vm
   become: true
   # If doesn't exist ignore

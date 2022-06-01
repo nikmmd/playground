@@ -1,31 +1,157 @@
 ---
-#  {{ vpn_pre_shared_key }}
-
 - hosts: router
-  gather_facts: yes
   become: true
-  vars:
-    color: blue
+  # Get
+  gather_facts: true
   tasks:
-    # get other routers
-    - set_fact:
-        other_routers: "{{ groups.router|difference([inventory_hostname]) }}"
-        current_router: "{{ hostvars[inventory_hostname] }}"
-    - name: Print host
-      ansible.builtin.debug:
-        msg : | 
-          {%- for router in other_routers -%}
-            {{ hostvars[router]['eth1_subnet'] }}
-          {%- endfor -%}
+    - name: Enable Ethernet Interfaces
+      args:
+        executable: /bin/vbash
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+        configure
+
+        set interface ethernet eth0 address dhcp
+        set interface ethernet eth0 description 'EXTERNAL'
+        set interface ethernet eth1 address {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}/24
+        set interface ethernet eth1 description 'INTERNAL'
+        set interface ethernet eth2 address dhcp
+        set interface ethernet eth2 description 'TUN-OUT'
+
+        set nat source rule 100 outbound-interface 'eth0'
+        set nat source rule 100 source address {{ hostvars[inventory_hostname]['eth1_subnet'] }}
+        set nat source rule 100 translation address masquerade
+
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} range 0 start {{ hostvars[inventory_hostname]['eth1_dhcp_from'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} range 0 stop  {{ hostvars[inventory_hostname]['eth1_dhcp_to'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} default-router {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}
+        set service dhcp-server shared-network-name LAN1 subnet {{ hostvars[inventory_hostname]['eth1_subnet'] }} domain-name {{inventory_hostname}}.org
+
+        set service dns forwarding cache-size '0'
+        set service dns forwarding listen-address {{ hostvars[inventory_hostname]['eth1_gateway_address'] }}
+        set service dns forwarding allow-from {{ hostvars[inventory_hostname]['eth1_subnet'] }}
+
+        commit
+        exit
+
+    #Simulates external IP
+    - name: Export TUN
+      delay: 15
+      set_fact:
+        tunnel_ip: "{{ ansible_eth2.ipv4.address }}"
+
+#Configure S2S
+- hosts: router
+  vars:
+    peer_routers: "{{ groups.router|difference([inventory_hostname]) }}"
+    enable_vpn: true
+  become: true
+  tasks:
+    - name: Enable S2S Default Interface
+      when: enable_vpn
+      register: vpn_setup
+      failed_when: "'failed' in vpn_setup.stdout"
+      args:
+        executable: /bin/vbash
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+        configure
+
+        edit vpn ipsec
+
+        set esp-group DEFAULT-ESP compression 'disable'
+        set esp-group DEFAULT-ESP lifetime '1800'
+        set esp-group DEFAULT-ESP mode 'tunnel'
+        set esp-group DEFAULT-ESP pfs 'enable'
+        set esp-group DEFAULT-ESP proposal 1 encryption 'aes256'
+        set esp-group DEFAULT-ESP proposal 1 hash 'sha256'
+
+        set ike-group DEFAULT-IKE ikev2-reauth 'no'
+        set ike-group DEFAULT-IKE key-exchange 'ikev1'
+        set ike-group DEFAULT-IKE lifetime '3600'
+        set ike-group DEFAULT-IKE proposal 1 encryption 'aes256'
+        set ike-group DEFAULT-IKE proposal 1 hash 'sha256'
+        set interface 'eth2'
+
+
+        commit
+        save
+
+    - name: Connect S2S Peers
+      when: enable_vpn
+      register: vpn_setup
+      failed_when: "'failed' in vpn_setup.stdout"
+      args:
+        executable: /bin/vbash
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+
+        configure
+
+        edit vpn ipsec
+
+        set site-to-site peer {{ item.tunnel_ip }} authentication mode 'pre-shared-secret'
+        set site-to-site peer {{ item.tunnel_ip }} authentication pre-shared-secret '{{ vpn_preshared_key }}'
+        set site-to-site peer {{ item.tunnel_ip }} ike-group 'DEFAULT-IKE'
+        set site-to-site peer {{ item.tunnel_ip }} local-address '{{ tunnel_ip }}'
+
+
+        set site-to-site peer {{ item.tunnel_ip }} tunnel 0 esp-group 'DEFAULT-ESP'
+        set site-to-site peer {{ item.tunnel_ip }} tunnel 0 local prefix '{{ eth1_subnet }}'
+        set site-to-site peer {{ item.tunnel_ip }} tunnel 0 remote prefix '{{ item.eth1_subnet }}'
+
+        commit
+        exit
+
+
+        configure
+
+        # set nat source rule 10 destination address '{{ item.eth1_subnet }}'
+        # set nat source rule 10 'exclude'
+
+        # set nat source rule 10 outbound-interface 'eth2'
+        # set nat source rule 10 source address '{{ eth1_subnet }}'
+
+        # set firewall name OUTSIDE-LOCAL rule 32 action 'accept'
+        # set firewall name OUTSIDE-LOCAL rule 32 source address '{{ item.eth1_subnet }}'
+
+
+        set protocols static route {{ item.eth1_subnet }} next-hop {{ item.tunnel_ip }} distance '1'
+
+        commit
+        exit
+
+      with_items: "{{ peer_routers | map('extract', hostvars) | list }}"
+
+    - name: Check S2S Established
+      register: s2s_up
+      args:
+        executable: /bin/vbash
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+        run show vpn ipsec status
+        exit
+      delay: 10
+      retries: 10
+      until: s2s_up.stdout.find("ESTABLISHED") != -1
+
+    - name: Check S2S tunnel up
+      register: s2s_up
+      args:
+        executable: /bin/vbash
+      ansible.builtin.shell: |
+        source /opt/vyatta/etc/functions/script-template
+        run show vpn ipsec sa
+        exit
+      delay: 10
+      retries: 10
+      until: s2s_up.stdout.find("up") != -1
 
 - hosts: vm
   become: true
-  # If doesn't exist ignore
+  # If doesn't exist ignore (Potently route already deleted )
   ignore_errors: yes
   tasks:
     - name: Disable NAT & Route Everything through router
       ansible.builtin.shell: |
-        echo 1
-
-
-   
+        ip route delete default via 10.0.2.2
