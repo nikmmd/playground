@@ -21,5 +21,5 @@ poetry install
 
 ## Running 
 
-
-python example_01.py run --namespace my_namespace
+-- Example 1: `python example_01.py run`
+-- Example 2: `python example_02_tags.py run --tag team_id:1 --tag version:1`
