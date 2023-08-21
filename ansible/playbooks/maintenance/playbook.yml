@@ -11,4 +11,8 @@
   tasks:
     - name: "Notify Telegram"
       include_tasks: "../notify/roles/telegram/tasks/main.yml"
+      vars:
+        notification_text: "{{ notification_text }}"
+        telegram_token: "{{ telegram_token }}"
+        telegram_chat_id: "{{ telegram_chat_id }}"
       when: notify_telegram is defined
