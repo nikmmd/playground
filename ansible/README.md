@@ -1,4 +1,4 @@
-# Useful playbooks I run based on the structure in Christian Lempa's boliulerplate I liked 
+# Useful playbooks I run based on the structure in Christian Lempa's boilerplate I liked 
 - https://www.youtube.com/watch?v=NyOSoLn5T5U&t=922s
 
 
@@ -13,4 +13,5 @@ E.g. mainstance
 cd playbooks/maintnance
 ansible-playbook playbook.yaml -i ../../inventory/hosts.ini -e "hosts=all"
 ```
+^ note the dynanic host var in `-e`
 
