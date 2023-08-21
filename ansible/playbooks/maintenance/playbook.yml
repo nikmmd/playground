@@ -10,5 +10,10 @@
       become: true
   tasks:
     - name: "Notify Telegram"
-      include_tasks: "../notify/roles/telegram/tasks/main.yml"
+      community.general.telegram:
+        token: "{{ telegram_token }}"
+        api_args:
+          chat_id: "{{ telegram_chat_id }}"
+          parse_mode: "Markdown"
+          text: "{{ notification_text }}"
       when: notify_telegram is defined
