@@ -6,5 +6,5 @@
     - role: "redhat"
       when: ansible_os_family == "RedHat"
       become: true
-    - role: "docker"
-      become: true
+    # - role: "docker"
+    #   become: true
