@@ -1,4 +1,6 @@
 - hosts: "{{hosts}}"
+  vars:
+    notification_text: "Maintenance done on {{ inventory_hostname }} at {{ ansible_date_time.date }} {{ ansible_date_time.time }}. OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
   roles:
     - role: "debian"
       when: ansible_os_family == "Debian"
@@ -6,5 +8,7 @@
     - role: "redhat"
       when: ansible_os_family == "RedHat"
       become: true
-    # - role: "docker"
-    #   become: true
+  tasks:
+    - name: "Notify Telegram"
+      include_tasks: "../notify/roles/telegram/tasks/main.yml"
+      when: notify_telegram is defined

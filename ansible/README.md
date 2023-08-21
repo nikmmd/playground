@@ -14,5 +14,3 @@ cd playbooks/maintnance
 ansible-playbook playbook.yaml -i ../../inventory/hosts.ini -e "hosts=all"
 ```
 
-
-
