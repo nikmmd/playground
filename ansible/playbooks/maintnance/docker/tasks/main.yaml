@@ -1,0 +1,21 @@
+---
+
+
+- name: "Check Docker Exists"
+  ansible.builtin.command: docker --version
+  register: docker_exists
+  ignore_errors: true
+
+
+- name: "If Docker Exists"
+  community.docker.docker_prune:
+          containers: false
+          images: true
+          images_filters:
+            dangling: false
+          networks: false
+          volumes: false
+          builder_cache: false
+  when: docker_exists.rc == 0
+
+

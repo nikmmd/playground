@@ -1,0 +1,19 @@
+---
+
+- debug: 
+    msg: "Task RedHat"
+
+- name: "Update yum cache"
+  yum:
+    update_cache: yes
+  become_user: root
+  become_method: sudo
+
+- name: "Upgrade all packages"
+  yum:
+    name: "*"
+    state: latest
+    
+- name: "Remove unused packages"
+  yum:
+    autoremove: yes

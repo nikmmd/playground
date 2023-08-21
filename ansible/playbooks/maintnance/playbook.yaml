@@ -1,0 +1,10 @@
+- hosts: "{{hosts}}"
+  roles:
+    - role: "debian"
+      when: ansible_os_family == "Debian"
+      become: true
+    - role: "redhat"
+      when: ansible_os_family == "RedHat"
+      become: true
+    - role: "docker"
+      become: true
