@@ -7,7 +7,6 @@ This playbook is meant to 1) be run standalone targeting freshly created hosts o
 
 Refs:
  - https://bgstack15.wordpress.com/2020/01/15/freeipa-service-account-to-join-systems-unattended/
- - 
 
 ## cmd
 

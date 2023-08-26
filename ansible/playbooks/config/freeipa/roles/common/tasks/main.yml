@@ -8,5 +8,5 @@
 - name: "Reboot after enroll/unenroll"
   reboot:
     reboot_timeout: 300
-    msg: "Rebooting after unenroll"
+    msg: "Rebooting post enrollment/unenrollment"
   when: "ipaclient_reboot_after == true"
