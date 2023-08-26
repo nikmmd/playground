@@ -1,0 +1,12 @@
+- ansible.builtin.include_tasks:
+    file: join.yml
+  when: enroll is defined and enroll == true
+- ansible.builtin.include_tasks:
+    file: leave.yml
+  when: enroll is defined and enroll == false
+
+- name: "Reboot after enroll/unenroll"
+  reboot:
+    reboot_timeout: 300
+    msg: "Rebooting after unenroll"
+  when: "ipaclient_reboot_after == true"

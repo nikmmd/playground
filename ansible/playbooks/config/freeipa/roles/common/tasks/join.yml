@@ -1,0 +1,7 @@
+
+- name: "Client Enroll"
+  shell: "ipa-client-install --domain={{ domain }} --server={{ server }} --realm={{ realm }} --mkhomedir --enable-dns-updates --hostname={{ rename_host }} --principal={{ enrollment_principal }} --password={{ enrollment_password }} --unattended"
+  register: ipa_client_install
+  failed_when: "ipa_client_install.rc not in [0, 2]"
+  no_log: true
+  

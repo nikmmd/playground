@@ -1,0 +1,21 @@
+- hosts: "{{ ipa_client_ansible_hosts }}"
+  gather_facts: true
+  become: yes
+  roles:
+    - role: "debian"
+      when: ansible_os_family == "Debian"
+    - role: "redhat"
+      when: ansible_os_family == "RedHat"
+    - role: "common"
+      vars: 
+        enroll: false
+- hosts: "{{ ipa_server_ansible_hosts }}"
+  gather_facts: false
+  become: yes
+  tasks:
+    - shell: echo '{{ kerberos_password }}' | kinit {{ kerberos_user }}@{{ realm }}
+      no_log: true
+    - name: Cleanup unregisted hosts
+      shell: "ipa host-del {{ hostvars[item].ansible_hostname + '.' + domain }} --updatedns"
+      loop: "{{ groups[ipa_client_ansible_hosts] }}"
+      when: hostvars[item].exit_domain | default(false) == true

@@ -1,0 +1,12 @@
+- hosts: "{{ ipa_client_ansible_hosts }}"
+  become: yes
+  roles:
+    - role: "debian"
+      when: ansible_os_family == "Debian"
+    - role: "redhat"
+      when: ansible_os_family == "RedHat"
+    - role: "common"
+      vars:
+        enroll: true
+      
+

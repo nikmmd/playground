@@ -1,0 +1,1 @@
+  rename_host: "{{ ansible_hostname + '.' + domain if not ansible_hostname.endswith(domain) else ansible_hostname }}"

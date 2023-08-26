@@ -1,0 +1,12 @@
+- name: "IPA Client Unenroll"
+  shell: "ipa-client-install --uninstall --unattended"
+  register: ipa_client_uninstall
+  failed_when: >
+    not ((ipa_client_uninstall.stderr.find("IPA client is not configured") != -1 ) or 
+        (ipa_client_uninstall.stderr.find("Client uninstall complete") != -1 ))
+
+- name: Report that I have exited
+  set_fact:
+    exit_domain: true
+  when: ipa_client_uninstall.stderr.find("Client uninstall complete") != -1
+

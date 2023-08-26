@@ -1,0 +1,9 @@
+- name: "Upgrade"
+  ansible.builtin.apt:
+    upgrade: "yes"
+    update_cache: "yes"
+
+    
+- ansible.builtin.apt:
+    name: "freeipa-client"
+    state: present
