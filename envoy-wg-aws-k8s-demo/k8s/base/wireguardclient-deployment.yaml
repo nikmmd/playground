@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wireguard-client
+  labels:
+    app: wireguard-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wireguard-client
+  template:
+    metadata:
+      labels:
+        app: wireguard-client
+    spec:
+      containers:
+        - name: wireguard
+          image: linuxserver/wireguard:latest
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_MODULE
+            privileged: true
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+          volumeMounts:
+            - name: wg-config
+              mountPath: /config/wg_confs
+              readOnly: true
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+
+        - name: envoy
+          image: envoyproxy/envoy:v1.28-latest
+          args:
+            - "-c"
+            - "/etc/envoy/wg-envoy.yaml"
+          ports:
+            - containerPort: 15432
+              protocol: TCP
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+
+      volumes:
+        - name: wg-config
+          secret:
+            secretName: wireguard-config
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+        - name: envoy-config
+          configMap:
+            name: envoy-config

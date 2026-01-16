@@ -1,0 +1,10 @@
+.env
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# K8s generated secrets (from terraform output)
+k8s/base/secrets/

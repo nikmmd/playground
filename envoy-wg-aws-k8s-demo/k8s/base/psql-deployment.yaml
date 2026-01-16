@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: psql-client
+  labels:
+    app: psql-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: psql-client
+  template:
+    metadata:
+      labels:
+        app: psql-client
+    spec:
+      containers:
+        - name: psql
+          image: postgres:16-alpine
+          command:
+            - "sleep"
+            - "infinity"
+          env:
+            - name: PGHOST
+              value: "127.0.0.1"
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: database
+
+        - name: envoy
+          image: envoyproxy/envoy:v1.28-latest
+          args:
+            - "-c"
+            - "/etc/envoy/psql-envoy.yaml"
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: envoy-config

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - psql-deployment.yaml
+  - service.yaml
+  - wireguardclient-deployment.yaml
+
+configMapGenerator:
+  - name: envoy-config
+    files:
+      - secrets/psql-envoy.yaml
+      - secrets/wg-envoy.yaml
+
+secretGenerator:
+  - name: wireguard-config
+    files:
+      - wg0.conf=secrets/wg0.conf
+  - name: postgres-credentials
+    envs:
+      - secrets/postgres.env
+
+generatorOptions:
+  disableNameSuffixHash: true
