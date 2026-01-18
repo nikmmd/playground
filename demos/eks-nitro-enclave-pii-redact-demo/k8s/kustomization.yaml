@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # AWS Nitro Enclaves K8s Device Plugin DaemonSet
+  - https://raw.githubusercontent.com/aws/aws-nitro-enclaves-k8s-device-plugin/main/aws-nitro-enclaves-k8s-ds.yaml
+
+  # Local resources
+  - namespace.yaml
+  - pii-detection-deployment.yaml
+
+# Patches for remote resources
+patches:
+  - path: patches/nitro-daemonset-toleration.yaml
+
+# Note: Nitro Enclave nodes are provisioned via EKS Managed Node Group
+# (terraform/nitro_nodes.tf) - not Karpenter. EKS Auto Mode does not
+# support userData required for Nitro Enclave configuration.

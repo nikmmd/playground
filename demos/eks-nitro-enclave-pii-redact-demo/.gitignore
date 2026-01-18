@@ -1,0 +1,18 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/.terraform.lock.hcl
+terraform/crash.log
+
+# Generated K8s manifests (contain environment-specific values)
+k8s/*-generated.yaml
+
+# Environment files (contain secrets)
+k8s/.env
+.env
+
+# Build artifacts (but keep Dockerfile)
+build/*
+
+# macOS
+.DS_Store

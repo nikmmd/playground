@@ -1,0 +1,253 @@
+################################################################################
+# Confidential PII Detection Service
+#
+# This deploys the PII detection API that runs inside a Nitro Enclave.
+# The enclave ensures that PII is processed confidentially - even the
+# service operator cannot access the decrypted data.
+#
+# Deployment model:
+# - Init container downloads EIF and parent-app binary from S3
+# - Main container runs the Go binary directly (no Docker image needed)
+################################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-detection
+  namespace: enclave-demo
+  labels:
+    app: pii-detection
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pii-detection
+  template:
+    metadata:
+      labels:
+        app: pii-detection
+    spec:
+      # Schedule on Nitro Enclave nodes only
+      nodeSelector:
+        node.kubernetes.io/nitro-enclave: "true"
+
+      # Tolerate the Nitro Enclave taint
+      tolerations:
+        - key: "nitro-enclave"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      serviceAccountName: pii-detection
+
+      # Required for vsock and nitro-cli
+      hostNetwork: true
+      hostPID: true
+
+      initContainers:
+        # Download EIF and parent-app binary from S3
+        - name: download-artifacts
+          image: amazon/aws-cli:2.15.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Downloading artifacts from S3..."
+
+              # Ensure directory is world-accessible
+              chmod 777 /app
+
+              # Download enclave EIF
+              aws s3 cp "s3://${EIF_BUCKET}/pii-detection.eif" /app/server.eif
+              chmod 666 /app/server.eif
+
+              # Download parent-app binary
+              aws s3 cp "s3://${EIF_BUCKET}/pii-detection-parent" /app/pii-detection-parent
+              chmod 777 /app/pii-detection-parent
+
+              echo "Downloads complete:"
+              ls -la /app/
+          env:
+            - name: EIF_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pii-detection-config
+                  key: eif_bucket
+            - name: AWS_REGION
+              value: "us-east-1"
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: app
+              mountPath: /app
+
+      containers:
+        - name: pii-detection
+          image: amazonlinux:2023
+          command:
+            - /app/pii-detection-parent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: "DEBUG"
+              value: "1" #to enable console outout   nitro-cli console --enclave-id <enclave-id>
+            - name: EIF_PATH
+              value: "/app/server.eif"
+            - name: ENCLAVE_CID
+              value: "16"
+            - name: VSOCK_PORT
+              value: "5000"
+            - name: KMS_PROXY_PORT
+              value: "8000"
+            - name: ENCLAVE_CPUS
+              value: "2"
+            - name: ENCLAVE_MEMORY_MB
+              value: "6400"
+            - name: PORT
+              value: "8080"
+            - name: KMS_KEY_ARN
+              valueFrom:
+                configMapKeyRef:
+                  name: pii-detection-config
+                  key: kms_key_arn
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: port
+            - name: POSTGRES_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+          volumeMounts:
+            - name: app
+              mountPath: /app
+            # Nitro Enclave tools from host
+            - name: nitro-cli
+              mountPath: /usr/bin/nitro-cli
+              readOnly: true
+            - name: vsock-proxy
+              mountPath: /usr/bin/vsock-proxy
+              readOnly: true
+            - name: nitro-enclaves-run
+              mountPath: /run/nitro_enclaves
+            - name: hugepages
+              mountPath: /dev/hugepages
+              readOnly: false
+            - name: nitro-enclaves-config
+              mountPath: /etc/nitro_enclaves
+              readOnly: true
+            - name: nitro-enclaves-log
+              mountPath: /var/log/nitro_enclaves
+          resources:
+            requests:
+              # memory: "512Mi"
+              # cpu: "250m"
+              aws.ec2.nitro/nitro_enclaves: "1"
+              hugepages-1Gi: "7Gi"
+            limits:
+              memory: "7Gi"
+              # cpu: 2
+              aws.ec2.nitro/nitro_enclaves: "1"
+              hugepages-1Gi: "7Gi"
+          securityContext:
+            runAsUser: 0
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+
+      volumes:
+        - name: app
+          emptyDir: {}
+        # Nitro Enclave tools from host
+        - name: nitro-cli
+          hostPath:
+            path: /usr/bin/nitro-cli
+            type: File
+        - name: vsock-proxy
+          hostPath:
+            path: /usr/bin/vsock-proxy
+            type: File
+        - name: nitro-enclaves-run
+          hostPath:
+            path: /run/nitro_enclaves
+            type: DirectoryOrCreate
+        - name: hugepages
+          emptyDir:
+            medium: HugePages-1Gi
+        - name: nitro-enclaves-config
+          hostPath:
+            path: /etc/nitro_enclaves
+            type: Directory
+        - name: nitro-enclaves-log
+          hostPath:
+            path: /var/log/nitro_enclaves
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-detection
+  namespace: enclave-demo
+  labels:
+    app: pii-detection
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: pii-detection
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pii-detection
+  namespace: enclave-demo
+  annotations:
+    eks.amazonaws.com/role-arn: "${PII_DETECTION_ROLE_ARN}"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-detection-config
+  namespace: enclave-demo
+data:
+  eif_bucket: "${EIF_BUCKET}"
+  kms_key_arn: "${KMS_KEY_ARN}"

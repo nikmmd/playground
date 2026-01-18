@@ -1,0 +1,18 @@
+################################################################################
+# Strategic Merge Patch: Add toleration to Nitro Enclaves Device Plugin
+#
+# This allows the DaemonSet to schedule on nodes with the nitro-enclave taint.
+################################################################################
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: aws-nitro-enclaves-k8s-daemonset
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      tolerations:
+        - key: "nitro-enclave"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"

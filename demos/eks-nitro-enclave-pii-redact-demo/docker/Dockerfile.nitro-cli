@@ -1,0 +1,23 @@
+# Nitro CLI build environment
+# Build EIF files without installing nitro-cli locally
+#
+# Usage:
+#   docker build -t nitro-cli-builder -f build/Dockerfile.nitro-cli .
+#   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+#     -v $(pwd):/workspace nitro-cli-builder
+
+FROM amazonlinux:2023
+
+# Install nitro-cli and dependencies
+RUN dnf install -y \
+    aws-nitro-enclaves-cli \
+    aws-nitro-enclaves-cli-devel \
+    docker \
+    jq \
+    && dnf clean all
+
+# Create workspace
+WORKDIR /workspace
+
+# Default command shows help
+CMD ["nitro-cli", "--help"]
