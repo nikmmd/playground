@@ -1,12 +1,23 @@
 ## Cloud Playground
 
-## Terraform
-- [Terraform EC2](./terraform_ec2/README.md) - Example deployment of terraform EC2 with vars.
+For fun
 
+## Architecture Demos
 
-## Kubernetes
-- [Kops Standalone](./kops_standalone/README.md) - Example public deployment, with terraform (to create foundation) and kops cli to deploy Kubernetes
+### Secure Connectivity
 
+- [Envoy + WireGuard K8s Demo](./demos/envoy-wg-aws-k8s-demo/README.md) - Secure PostgreSQL connectivity from Kubernetes to AWS private subnets using Envoy TCP proxy sidecars and WireGuard VPN tunneling
 
-## Code companion for the blogs
-- [blog.hyperalpha.eu](./blog/blog.hyperalpha.eu/README.md)
+### Confidential Computing
+
+- [EKS Nitro Enclave PII Redaction](./demos/eks-nitro-enclave-pii-redact-demo/README.md) - Hardware-isolated PII detection using AWS Nitro Enclaves with KMS attestation-based policies and Microsoft Presidio
+
+## Infrastructure Automation
+
+### Configuration Management
+
+- [Ansible Playbooks](./ansible/README.md) - FreeIPA domain enrollment, Docker provisioning, and notification integrations
+
+## Blog Companion Code
+
+- [VyOS Networking](./blog/vyos) - IPSec VPN site-to-site and mesh topology examples
