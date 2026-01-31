@@ -18,6 +18,12 @@ logger.setLevel(logging.INFO)
 ec2 = boto3.client("ec2")
 autoscaling = boto3.client("autoscaling")
 
+# Configuration from environment (read once at cold start)
+EIP_ALLOCATION_ID = os.environ.get("EIP_ALLOCATION_ID")
+DEPLOYMENT_MODE = os.environ.get("DEPLOYMENT_MODE", "hot-standby")
+ASG_NAME = os.environ.get("ASG_NAME")
+PREFER_ON_DEMAND = os.environ.get("PREFER_ON_DEMAND", "false").lower() == "true"
+
 
 def get_eip_info(allocation_id: str) -> dict:
     """Get current EIP association information."""
@@ -47,12 +53,36 @@ def get_instance_lifecycle(instance_id: str) -> str:
     return "unknown"
 
 
+def get_instance_lifecycles_batch(instance_ids: list) -> dict:
+    """Get lifecycle types for multiple instances in a single API call.
+
+    Returns dict mapping instance_id -> lifecycle ('spot' or 'on-demand').
+    """
+    if not instance_ids:
+        return {}
+
+    try:
+        response = ec2.describe_instances(InstanceIds=instance_ids)
+        result = {}
+        for reservation in response["Reservations"]:
+            for instance in reservation["Instances"]:
+                instance_id = instance["InstanceId"]
+                # InstanceLifecycle is only present for spot instances
+                result[instance_id] = instance.get("InstanceLifecycle", "on-demand")
+        return result
+    except ClientError as e:
+        logger.error(f"Failed to batch describe instances: {e}")
+        return {inst_id: "unknown" for inst_id in instance_ids}
+
+
 def get_healthy_instances(
     asg_name: str, exclude_instance_id: str = None, prefer_on_demand: bool = False
 ) -> list:
     """Get list of healthy instances in the ASG.
 
     If prefer_on_demand is True, on-demand instances are returned first.
+    Returns list of (instance_id, lifecycle) tuples when prefer_on_demand=True,
+    otherwise returns list of instance_ids for backward compatibility.
     """
     try:
         response = autoscaling.describe_auto_scaling_groups(
@@ -73,16 +103,22 @@ def get_healthy_instances(
 
         # Sort by lifecycle preference: on-demand first, then spot
         if prefer_on_demand and instances:
+            # Single batch API call instead of N individual calls
+            lifecycles = get_instance_lifecycles_batch(instances)
+
             on_demand = []
             spot = []
             for inst_id in instances:
-                lifecycle = get_instance_lifecycle(inst_id)
-                if lifecycle == "spot":
-                    spot.append(inst_id)
+                if lifecycles.get(inst_id) == "spot":
+                    spot.append((inst_id, "spot"))
                 else:
-                    on_demand.append(inst_id)
-            logger.info(f"On-demand instances: {on_demand}, Spot instances: {spot}")
-            instances = on_demand + spot
+                    on_demand.append((inst_id, lifecycles.get(inst_id, "on-demand")))
+
+            logger.info(
+                f"On-demand instances: {[i[0] for i in on_demand]}, "
+                f"Spot instances: {[i[0] for i in spot]}"
+            )
+            return on_demand + spot
 
         return instances
     except ClientError as e:
@@ -180,13 +216,15 @@ def handle_instance_launching(
                 launching_lifecycle = get_instance_lifecycle(instance_id)
                 if launching_lifecycle == "spot":
                     # Launching is spot - check if on-demand exists
+                    # Returns list of (instance_id, lifecycle) tuples, on-demand first
                     healthy = get_healthy_instances(
                         asg_name, exclude_instance_id=None, prefer_on_demand=True
                     )
-                    # Filter out current launching instance (not yet InService)
+                    # Filter out launching instance, find on-demand targets
+                    # Lifecycle already included in tuple - no extra API calls
                     on_demand_targets = [
-                        i for i in healthy
-                        if i != instance_id and get_instance_lifecycle(i) != "spot"
+                        inst_id for inst_id, lifecycle in healthy
+                        if inst_id != instance_id and lifecycle != "spot"
                     ]
                     if on_demand_targets:
                         # Give EIP to on-demand instead of this spot
@@ -280,7 +318,11 @@ def handle_instance_terminating(
                     disassociate_eip(eip_info["AssociationId"])
 
                 # Associate with first healthy instance (on-demand first if preferred)
-                target_instance = healthy_instances[0]
+                # When prefer_on_demand=True, returns tuples; otherwise plain instance IDs
+                if prefer_on_demand:
+                    target_instance = healthy_instances[0][0]  # Extract ID from tuple
+                else:
+                    target_instance = healthy_instances[0]
                 success = associate_eip(eip_allocation_id, target_instance)
                 logger.info(f"Failed over EIP to {target_instance}: {success}")
             else:
@@ -316,17 +358,12 @@ def lambda_handler(event, context):
     """
     logger.info(f"Received event: {json.dumps(event)}")
 
-    # Get configuration from environment
-    eip_allocation_id = os.environ.get("EIP_ALLOCATION_ID")
-    deployment_mode = os.environ.get("DEPLOYMENT_MODE", "hot-standby")
-    expected_asg_name = os.environ.get("ASG_NAME")
-    prefer_on_demand = os.environ.get("PREFER_ON_DEMAND", "false").lower() == "true"
-
-    if not eip_allocation_id:
+    # Validate configuration (read at module level for efficiency)
+    if not EIP_ALLOCATION_ID:
         logger.error("EIP_ALLOCATION_ID environment variable not set")
         return {"statusCode": 500, "body": "Configuration error"}
 
-    if not expected_asg_name:
+    if not ASG_NAME:
         logger.error("ASG_NAME environment variable not set")
         return {"statusCode": 500, "body": "Configuration error"}
 
@@ -342,24 +379,24 @@ def lambda_handler(event, context):
     event_asg_name = event_detail.get("AutoScalingGroupName")
 
     # Sanity Check
-    if event_asg_name != expected_asg_name:
+    if event_asg_name != ASG_NAME:
         logger.warning(
-            f"ASG name mismatch: expected '{expected_asg_name}', got '{event_asg_name}'. Ignoring event."
+            f"ASG name mismatch: expected '{ASG_NAME}', got '{event_asg_name}'. Ignoring event."
         )
         return {"statusCode": 200, "body": "ASG name mismatch, event ignored"}
 
     # https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html
     if detail_type == "EC2 Instance-launch Lifecycle Action":
         return handle_instance_launching(
-            event_detail, eip_allocation_id, deployment_mode, prefer_on_demand
+            event_detail, EIP_ALLOCATION_ID, DEPLOYMENT_MODE, PREFER_ON_DEMAND
         )
     elif detail_type == "EC2 Instance-terminate Lifecycle Action":
         return handle_instance_terminating(
             event_detail,
-            eip_allocation_id,
-            deployment_mode,
-            expected_asg_name,
-            prefer_on_demand,
+            EIP_ALLOCATION_ID,
+            DEPLOYMENT_MODE,
+            ASG_NAME,
+            PREFER_ON_DEMAND,
         )
 
     logger.warning(f"Unhandled event type: {detail_type}")
