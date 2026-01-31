@@ -55,6 +55,10 @@ resource "aws_autoscaling_group" "this" {
   health_check_type         = var.health_check_type
   health_check_grace_period = var.health_check_grace_period
 
+  # Force delete to avoid destroy getting stuck on lifecycle hooks or warm pool
+  force_delete              = true
+  wait_for_capacity_timeout = "0"
+
   # Pre-provisioned standby (AWS warm pool) for faster cold standby failover
   dynamic "warm_pool" {
     for_each = local.use_preprovisioned_standby ? [1] : []
