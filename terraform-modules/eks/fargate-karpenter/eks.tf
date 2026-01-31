@@ -86,11 +86,11 @@ module "eks" {
   control_plane_subnet_ids = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.private_subnet_ids
 
   # Fargate uses cluster primary security group, additional SG for custom rules
-  create_cluster_security_group                         = true
-  create_node_security_group                            = false
-  cluster_security_group_additional_rules               = var.cluster_security_group_additional_rules
-  cluster_security_group_use_name_prefix                = true
-  cluster_security_group_name                           = "${local.cluster_name}-cluster"
+  create_cluster_security_group           = true
+  create_node_security_group              = false
+  cluster_security_group_additional_rules = var.cluster_security_group_additional_rules
+  cluster_security_group_use_name_prefix  = true
+  cluster_security_group_name             = "${local.cluster_name}-cluster"
 
   # Merged configs
   cluster_addons   = local.cluster_addons

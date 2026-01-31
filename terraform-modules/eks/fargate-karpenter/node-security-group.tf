@@ -39,8 +39,8 @@ resource "aws_security_group" "karpenter_node" {
   vpc_id      = var.vpc_id
 
   tags = merge(local.tags, {
-    Name                         = "${var.cluster_name}-karpenter-node"
-    "karpenter.sh/discovery"     = var.cluster_name
+    Name                     = "${var.cluster_name}-karpenter-node"
+    "karpenter.sh/discovery" = var.cluster_name
   })
 
   lifecycle {

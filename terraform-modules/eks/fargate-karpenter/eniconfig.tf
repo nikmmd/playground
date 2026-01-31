@@ -25,11 +25,11 @@ resource "kubectl_manifest" "eniconfig" {
     spec:
       subnet: ${each.value}
       securityGroups: ${jsonencode(
-        length(local.pod_security_group_ids) > 0
-          ? local.pod_security_group_ids
-          : [module.eks.cluster_primary_security_group_id]
-      )}
+  length(local.pod_security_group_ids) > 0
+  ? local.pod_security_group_ids
+  : [module.eks.cluster_primary_security_group_id]
+)}
   YAML
 
-  depends_on = [module.eks]
+depends_on = [module.eks]
 }
