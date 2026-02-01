@@ -39,7 +39,16 @@ variable "resource_tag_value" {
 }
 
 variable "prefer_on_demand" {
-  description = "Prefer on-demand instances for EIP association (hot-standby with spot)"
+  description = <<-EOT
+    Prefer on-demand instances for EIP association in hot-standby mode with mixed spot/on-demand.
+
+    When true:
+    - Initial EIP assignment prefers on-demand over spot instances
+    - EIP transfers to on-demand when spot instance terminates (interruption, health failure)
+
+    Note: For availability, EIP is NOT moved between running instances. The transfer only
+    occurs when the current EIP holder terminates, ensuring zero-downtime during rolling updates.
+  EOT
   type        = bool
   default     = true
 }

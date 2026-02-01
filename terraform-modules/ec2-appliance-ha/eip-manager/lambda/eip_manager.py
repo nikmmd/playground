@@ -3,6 +3,15 @@ EIP Manager Lambda Function
 
 Handles EIP failover for hot-standby and cold-standby deployments.
 Triggered by ASG lifecycle events via EventBridge.
+
+Design Principles:
+- AVAILABILITY FIRST: EIP is never moved between running healthy instances.
+  This ensures zero-downtime during rolling updates (instance refresh, AMI updates).
+- EIP transfers only occur when:
+  1. No instance currently has the EIP (initial launch, after failure)
+  2. The current EIP holder terminates (termination hook handles transfer)
+- prefer_on_demand affects initial assignment and termination failover order,
+  but does NOT cause EIP to be "stolen" from a running spot instance.
 """
 
 import json
@@ -199,74 +208,43 @@ def handle_instance_launching(
             f"Instance {instance_id} is going to warm pool, skipping EIP association"
         )
         success = True
-    elif deployment_mode == "cold-standby":
-        # Cold standby: always associate EIP with new instance joining ASG
-        eip_info = get_eip_info(eip_allocation_id)
-        if eip_info.get("AssociationId"):
-            disassociate_eip(eip_info["AssociationId"])
-        success = associate_eip(eip_allocation_id, instance_id)
     else:
-        # Hot standby: associate if no current association, or steal from spot
+        # Check current EIP state
         eip_info = get_eip_info(eip_allocation_id)
         current_eip_instance = eip_info.get("InstanceId")
 
         if not current_eip_instance:
-            # No current association - determine best target
-            if prefer_on_demand:
+            # No instance has EIP - associate with launching instance
+            # For hot-standby with prefer_on_demand, check if on-demand should get it instead
+            if deployment_mode == "hot-standby" and prefer_on_demand:
                 launching_lifecycle = get_instance_lifecycle(instance_id)
                 if launching_lifecycle == "spot":
                     # Launching is spot - check if on-demand exists
-                    # Returns list of (instance_id, lifecycle) tuples, on-demand first
                     healthy = get_healthy_instances(
                         asg_name, exclude_instance_id=None, prefer_on_demand=True
                     )
-                    # Filter out launching instance, find on-demand targets
-                    # Lifecycle already included in tuple - no extra API calls
                     on_demand_targets = [
                         inst_id for inst_id, lifecycle in healthy
                         if inst_id != instance_id and lifecycle != "spot"
                     ]
                     if on_demand_targets:
-                        # Give EIP to on-demand instead of this spot
                         logger.info(
                             f"Launching spot {instance_id}, but on-demand {on_demand_targets[0]} exists - giving EIP to on-demand"
                         )
                         success = associate_eip(eip_allocation_id, on_demand_targets[0])
                     else:
-                        # No on-demand available, give to launching spot
                         success = associate_eip(eip_allocation_id, instance_id)
                 else:
-                    # Launching is on-demand, give it the EIP
                     success = associate_eip(eip_allocation_id, instance_id)
             else:
-                # No preference, give to launching instance
                 success = associate_eip(eip_allocation_id, instance_id)
-        elif prefer_on_demand:
-            # Check if we should steal EIP from spot instance
-            launching_lifecycle = get_instance_lifecycle(instance_id)
-            current_lifecycle = get_instance_lifecycle(current_eip_instance)
-
-            logger.info(
-                f"Launching instance {instance_id} is {launching_lifecycle}, "
-                f"current EIP holder {current_eip_instance} is {current_lifecycle}"
-            )
-
-            if launching_lifecycle == "on-demand" and current_lifecycle == "spot":
-                # Steal EIP from spot instance to on-demand
-                logger.info(
-                    f"Moving EIP from spot {current_eip_instance} to on-demand {instance_id}"
-                )
-                if eip_info.get("AssociationId"):
-                    disassociate_eip(eip_info["AssociationId"])
-                success = associate_eip(eip_allocation_id, instance_id)
-            else:
-                logger.info(
-                    f"EIP already on {current_lifecycle} instance, skipping"
-                )
-                success = True
         else:
+            # EIP already on another instance (rolling update scenario)
+            # DON'T steal EIP - launching instance hasn't passed health checks yet
+            # Let termination hook handle transfer when old instance terminates
             logger.info(
-                f"EIP already associated with {current_eip_instance}, skipping"
+                f"EIP already on {current_eip_instance}, skipping association. "
+                f"Termination hook will transfer EIP when {current_eip_instance} terminates."
             )
             success = True
 

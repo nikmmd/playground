@@ -48,7 +48,15 @@ variable "standby_mode" {
 # ============================================================================
 
 variable "spot_for_standby" {
-  description = "Use Spot instance for the standby (secondary) instance in hot mode. Saves ~70% cost but may be interrupted. Only applies to hot standby mode."
+  description = <<-EOT
+    Use Spot instance for the standby (secondary) instance in hot mode.
+    Saves ~70% cost but may be interrupted. Only applies to hot standby mode.
+
+    EIP behavior with spot:
+    - On-demand instance is preferred for EIP (more stable)
+    - EIP transfers to on-demand only when spot terminates (interruption, health failure)
+    - For availability, EIP is NOT moved between running instances during rolling updates
+  EOT
   type        = bool
   default     = false
 }
