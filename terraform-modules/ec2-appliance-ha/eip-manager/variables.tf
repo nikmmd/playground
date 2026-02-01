@@ -18,15 +18,6 @@ variable "asg_arn" {
   type        = string
 }
 
-variable "deployment_mode" {
-  description = "Deployment mode: hot-standby or cold-standby"
-  type        = string
-  validation {
-    condition     = contains(["hot-standby", "cold-standby"], var.deployment_mode)
-    error_message = "deployment_mode must be 'hot-standby' or 'cold-standby'"
-  }
-}
-
 variable "resource_tag_key" {
   description = "Tag key used to identify managed resources for IAM condition"
   type        = string
@@ -36,12 +27,6 @@ variable "resource_tag_key" {
 variable "resource_tag_value" {
   description = "Tag value used to identify managed resources for IAM condition"
   type        = string
-}
-
-variable "prefer_on_demand" {
-  description = "Prefer on-demand instances for EIP association (hot-standby with spot)"
-  type        = bool
-  default     = true
 }
 
 variable "tags" {

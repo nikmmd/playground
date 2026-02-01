@@ -29,13 +29,18 @@ output "asg_name" {
 }
 
 output "standby_mode" {
-  description = "HA standby mode"
+  description = "Standby mode: none, cold, or hot"
   value       = module.asg_ha.standby_mode
 }
 
-output "preprovisioned_standby" {
-  description = "Whether pre-provisioned standby is enabled"
-  value       = module.asg_ha.preprovisioned_standby
+output "warm_pool_enabled" {
+  description = "Whether warm pool is enabled"
+  value       = module.asg_ha.warm_pool_enabled
+}
+
+output "warm_pool_state" {
+  description = "Warm pool instance state"
+  value       = module.asg_ha.warm_pool_state
 }
 
 output "lambda_function_name" {

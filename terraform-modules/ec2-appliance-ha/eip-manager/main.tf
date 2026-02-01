@@ -37,9 +37,7 @@ resource "aws_lambda_function" "eip_manager" {
   environment {
     variables = {
       EIP_ALLOCATION_ID = var.eip_allocation_id
-      DEPLOYMENT_MODE   = var.deployment_mode
       ASG_NAME          = var.asg_name
-      PREFER_ON_DEMAND  = tostring(var.prefer_on_demand)
     }
   }
 

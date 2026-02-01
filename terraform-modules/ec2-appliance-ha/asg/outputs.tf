@@ -29,21 +29,16 @@ output "iam_role_arn" {
 }
 
 output "standby_mode" {
-  description = "HA standby mode: hot or cold"
+  description = "Standby mode: none, cold, or hot"
   value       = var.standby_mode
 }
 
-output "preprovisioned_standby" {
-  description = "Whether pre-provisioned standby is enabled"
-  value       = local.use_preprovisioned_standby
+output "warm_pool_enabled" {
+  description = "Whether warm pool is enabled (cold or hot mode)"
+  value       = local.use_warm_pool
 }
 
-output "spot_for_standby" {
-  description = "Whether Spot is used for standby instance"
-  value       = local.use_spot
-}
-
-output "desired_capacity" {
-  description = "Desired number of running instances"
-  value       = local.desired_capacity
+output "warm_pool_state" {
+  description = "State of instances in warm pool (Running, Stopped, or Hibernated)"
+  value       = local.use_warm_pool ? local.warm_pool_state : null
 }

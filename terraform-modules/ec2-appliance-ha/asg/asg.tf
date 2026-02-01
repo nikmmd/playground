@@ -1,33 +1,22 @@
-locals {
-  # Capacity settings based on mode
-  min_size         = local.is_hot ? 2 : 1
-  desired_capacity = local.is_hot ? 2 : 1
-  max_size         = local.is_hot ? 2 : (var.preprovisioned_standby ? 2 : 1)
-
-  # Alarm threshold matches desired capacity
-  alarm_threshold = local.is_hot ? 2 : 1
-
-  # Instance refresh settings
-  min_healthy_percentage = local.is_hot ? 50 : 0
-
-  # Spot configuration (derived from spot_for_standby)
-  # - Hot + spot_for_standby=true: 1 on-demand (primary) + 1 spot (standby)
-  # - Hot + spot_for_standby=false: 2 on-demand
-  # - Cold: always on-demand (1 instance or preprovisioned standby which requires on-demand)
-  on_demand_base_capacity         = local.is_hot && var.spot_for_standby ? 1 : 100
-  on_demand_percentage_above_base = local.is_hot && var.spot_for_standby ? 0 : 100
-  use_spot                        = local.is_hot && var.spot_for_standby
-
-  # Pre-provisioned standby (warm pool) only in cold mode
-  use_preprovisioned_standby = local.is_cold && var.preprovisioned_standby
-}
+# ============================================================================
+# Auto Scaling Group with Optional Warm Pool
+# ============================================================================
+#
+# Modes:
+#   - none: Single instance, ASG replaces on failure (~2-3 min)
+#   - cold: Warm pool with Stopped/Hibernated standby (~30-60s / ~10-20s)
+#   - hot:  Warm pool with Running standby (instant failover)
+#
+# Instance refresh ensures zero-downtime during patching/upgrades by pulling
+# from warm pool before terminating the active instance.
+# ============================================================================
 
 resource "aws_autoscaling_group" "this" {
   name                = var.asg_name
   vpc_zone_identifier = var.subnet_ids
-  min_size            = local.min_size
-  max_size            = local.max_size
-  desired_capacity    = local.desired_capacity
+  min_size            = 1
+  max_size            = local.use_warm_pool || var.rolling_update ? 2 : 1
+  desired_capacity    = 1
 
   # Use latest version of launch template
   mixed_instances_policy {
@@ -45,10 +34,10 @@ resource "aws_autoscaling_group" "this" {
       }
     }
 
+    # All on-demand (no spot in simplified version)
     instances_distribution {
-      on_demand_base_capacity                  = local.on_demand_base_capacity
-      on_demand_percentage_above_base_capacity = local.on_demand_percentage_above_base
-      spot_allocation_strategy                 = local.use_spot ? var.spot_allocation_strategy : null
+      on_demand_base_capacity                  = 100
+      on_demand_percentage_above_base_capacity = 100
     }
   }
 
@@ -59,12 +48,13 @@ resource "aws_autoscaling_group" "this" {
   force_delete              = true
   wait_for_capacity_timeout = "0"
 
-  # Pre-provisioned standby (AWS warm pool) for faster cold standby failover
+  # Warm pool for hot/cold standby modes
   dynamic "warm_pool" {
-    for_each = local.use_preprovisioned_standby ? [1] : []
+    for_each = local.use_warm_pool ? [1] : []
     content {
-      pool_state = var.preprovisioned_standby_state
-      min_size   = 1
+      pool_state                  = local.warm_pool_state
+      min_size                    = 1
+      max_group_prepared_capacity = 2
 
       instance_reuse_policy {
         reuse_on_scale_in = true
@@ -72,15 +62,19 @@ resource "aws_autoscaling_group" "this" {
     }
   }
 
-  # Terminate oldest instance first
+  # Terminate oldest instance first (ensures fresh instances after refresh)
   termination_policies = ["OldestInstance"]
 
-  # Enable instance refresh for rolling updates
-  # Note: launch_template changes automatically trigger refresh
+  # Instance refresh for zero-downtime patching/upgrades
+  # With warm pool: pulls standby first, then terminates old instance
   instance_refresh {
     strategy = "Rolling"
     preferences {
-      min_healthy_percentage = local.min_healthy_percentage
+      min_healthy_percentage       = var.min_healthy_percentage
+      instance_warmup              = var.health_check_grace_period
+      skip_matching                = true
+      auto_rollback                = true
+      scale_in_protected_instances = "Wait"
     }
   }
 
@@ -100,9 +94,16 @@ resource "aws_autoscaling_group" "this" {
     lifecycle_transition = "autoscaling:EC2_INSTANCE_TERMINATING"
   }
 
+  # Tags
   tag {
     key                 = "Name"
-    value               = "${var.name_prefix}asg"
+    value               = "${var.name_prefix}instance"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = var.resource_tag_key
+    value               = var.resource_tag_value
     propagate_at_launch = true
   }
 
@@ -120,8 +121,13 @@ resource "aws_autoscaling_group" "this" {
   }
 }
 
-# CloudWatch alarm for ASG health
+# ============================================================================
+# CloudWatch Alarm for Unhealthy Instances (Optional)
+# ============================================================================
+
 resource "aws_cloudwatch_metric_alarm" "unhealthy_instances" {
+  count = var.unhealthy_alarm_enabled ? 1 : 0
+
   alarm_name          = "${var.name_prefix}unhealthy-instances"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
@@ -129,8 +135,8 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_instances" {
   namespace           = "AWS/AutoScaling"
   period              = 60
   statistic           = "Average"
-  threshold           = local.alarm_threshold
-  alarm_description   = "Alert when less than ${local.alarm_threshold} instance(s) are healthy"
+  threshold           = 1
+  alarm_description   = "Alert when no healthy instances are available"
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.this.name

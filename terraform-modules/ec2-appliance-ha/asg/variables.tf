@@ -33,51 +33,42 @@ variable "eip_allocation_id" {
 # ============================================================================
 
 variable "standby_mode" {
-  description = "HA mode: 'hot' (2 running instances) or 'cold' (1 running, failover on demand)"
+  description = <<-EOT
+    Standby mode for failover:
+    - 'none': No standby, ASG replaces failed instance (~2-3 min failover)
+    - 'cold': Stopped standby in warm pool (~30-60s failover)
+    - 'hot':  Running standby in warm pool (instant failover)
+  EOT
   type        = string
-  default     = "cold"
+  default     = "none"
 
   validation {
-    condition     = contains(["hot", "cold"], var.standby_mode)
-    error_message = "standby_mode must be 'hot' or 'cold'"
+    condition     = contains(["none", "cold", "hot"], var.standby_mode)
+    error_message = "standby_mode must be 'none', 'cold', or 'hot'"
   }
 }
 
-# ============================================================================
-# Hot Standby: Spot Configuration
-# ============================================================================
-
-variable "spot_for_standby" {
-  description = "Use Spot instance for the standby (secondary) instance in hot mode. Saves ~70% cost but may be interrupted. Only applies to hot standby mode."
-  type        = bool
-  default     = false
-}
-
-variable "spot_allocation_strategy" {
-  description = "Spot allocation strategy when spot_for_standby=true: capacity-optimized, capacity-optimized-prioritized, lowest-price, price-capacity-optimized"
-  type        = string
-  default     = "capacity-optimized"
-}
-
-# ============================================================================
-# Cold Standby: Pre-provisioned Standby Configuration
-# ============================================================================
-
-variable "preprovisioned_standby" {
-  description = "Create a pre-provisioned standby instance (stopped/hibernated) for faster failover (~30-60s vs ~2-3min). Only applies to cold standby mode. Cannot be combined with Spot."
-  type        = bool
-  default     = false
-}
-
-variable "preprovisioned_standby_state" {
-  description = "State of pre-provisioned standby instance: 'Stopped' (boots from scratch, ~30-60s) or 'Hibernated' (resumes from RAM, ~10-20s, requires EBS encryption)"
+variable "cold_standby_state" {
+  description = "State of cold standby: 'Stopped' (~30-60s) or 'Hibernated' (~10-20s, requires EBS encryption)"
   type        = string
   default     = "Stopped"
 
   validation {
-    condition     = contains(["Stopped", "Hibernated"], var.preprovisioned_standby_state)
-    error_message = "preprovisioned_standby_state must be 'Stopped' or 'Hibernated'"
+    condition     = contains(["Stopped", "Hibernated"], var.cold_standby_state)
+    error_message = "cold_standby_state must be 'Stopped' or 'Hibernated'"
   }
+}
+
+variable "rolling_update" {
+  description = "Enable zero-downtime rolling updates by allowing a temporary extra instance during refresh. When false, accepts brief downtime during patching. Only applies to standby_mode='none'; cold/hot modes always have zero-downtime via warm pool."
+  type        = bool
+  default     = true
+}
+
+variable "min_healthy_percentage" {
+  description = "Minimum percentage of healthy instances during instance refresh (0-100). Set to 100 for zero-downtime, 0 to allow all instances to be replaced at once."
+  type        = number
+  default     = 100
 }
 
 # ============================================================================
@@ -85,7 +76,7 @@ variable "preprovisioned_standby_state" {
 # ============================================================================
 
 variable "instance_types" {
-  description = "List of instance types for mixed instance policy"
+  description = "List of instance types (first available will be used)"
   type        = list(string)
   default     = ["t4g.nano", "t4g.micro"]
 }
@@ -106,6 +97,12 @@ variable "user_data" {
   description = "User data script for EC2 instances"
   type        = string
   default     = ""
+}
+
+variable "root_volume_size" {
+  description = "Size of the root EBS volume in GB"
+  type        = number
+  default     = 20
 }
 
 # ============================================================================
@@ -151,17 +148,19 @@ variable "tags" {
   default     = {}
 }
 
+variable "unhealthy_alarm_enabled" {
+  description = "Enable CloudWatch alarm for unhealthy instances"
+  type        = bool
+  default     = true
+}
+
 # ============================================================================
-# Validation Rules
+# Derived Locals
 # ============================================================================
 
 locals {
-  is_hot  = var.standby_mode == "hot"
-  is_cold = var.standby_mode == "cold"
+  use_warm_pool = var.standby_mode != "none"
 
-  # Validate: preprovisioned_standby only in cold mode
-  _validate_preprovisioned_mode = var.preprovisioned_standby && local.is_hot ? tobool("ERROR: preprovisioned_standby is only valid in cold standby mode") : true
-
-  # Validate: spot_for_standby only in hot mode
-  _validate_spot_mode = var.spot_for_standby && local.is_cold ? tobool("ERROR: spot_for_standby is only valid in hot standby mode") : true
+  # Warm pool state: Running for hot, Stopped/Hibernated for cold
+  warm_pool_state = var.standby_mode == "hot" ? "Running" : var.cold_standby_state
 }

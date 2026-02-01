@@ -81,7 +81,7 @@ resource "aws_security_group" "ec2" {
   }
 }
 
-# EIP for cold standby
+# EIP for the appliance
 resource "aws_eip" "this" {
   domain = "vpc"
   tags = {
@@ -98,7 +98,6 @@ module "eip_manager" {
   eip_allocation_id = aws_eip.this.allocation_id
   asg_name          = local.asg_name
   asg_arn           = "arn:aws:autoscaling:${var.aws_region}:${data.aws_caller_identity.current.account_id}:autoScalingGroup:*:autoScalingGroupName/${local.asg_name}"
-  deployment_mode   = "cold-standby"
 
   resource_tag_key   = var.resource_tag_key
   resource_tag_value = local.prefix
@@ -106,7 +105,7 @@ module "eip_manager" {
   tags = local.common_tags
 }
 
-# HA ASG Module (Cold Standby) - CREATED AFTER Lambda/EventBridge ready
+# HA ASG Module - CREATED AFTER Lambda/EventBridge ready
 module "asg_ha" {
   source = "../../../terraform-modules/ec2-appliance-ha/asg"
 
@@ -118,15 +117,12 @@ module "asg_ha" {
   security_group_ids = [aws_security_group.ec2.id]
   eip_allocation_id  = aws_eip.this.allocation_id
 
-  # ── HA Mode ─────────────────────────────────────────────────────────────────
-  # "cold" = 1 running instance, failover on demand
-  # "hot"  = 2 running instances, instant failover
-  standby_mode = "cold"
-
-  # ── Cold Standby Options ────────────────────────────────────────────────────
-  # Pre-provision a stopped instance for faster failover (~30-60s vs ~2-3min)
-  preprovisioned_standby       = var.preprovisioned_standby
-  preprovisioned_standby_state = var.preprovisioned_standby_state # "Stopped" or "Hibernated"
+  # ── Standby Mode ──────────────────────────────────────────────────────────────
+  # 'none' = No standby (~2-3 min failover)
+  # 'cold' = Stopped warm pool (~30-60s failover)
+  # 'hot'  = Running warm pool (instant failover)
+  standby_mode       = var.standby_mode
+  cold_standby_state = var.cold_standby_state
 
   # ── Instance Configuration ──────────────────────────────────────────────────
   instance_types = var.instance_types

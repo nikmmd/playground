@@ -1,13 +1,13 @@
 variable "name_prefix" {
   description = "Prefix for all resource names"
   type        = string
-  default     = "cold-standby-"
+  default     = "appliance-"
 }
 
 variable "project_name" {
   description = "Project name for tagging"
   type        = string
-  default     = "ec2-cold-standby"
+  default     = "ec2-appliance-ha"
 }
 
 variable "aws_region" {
@@ -35,7 +35,7 @@ variable "availability_zones" {
 }
 
 variable "instance_types" {
-  description = "List of instance types for mixed instance policy"
+  description = "List of instance types"
   type        = list(string)
   default     = ["t4g.nano", "t4g.micro"]
 }
@@ -59,23 +59,28 @@ variable "resource_tag_key" {
 }
 
 variable "additional_iam_policy_arns" {
-  description = "List of additional IAM policy ARNs to attach to the EC2 role (e.g., S3, DynamoDB access)"
+  description = "List of additional IAM policy ARNs to attach to the EC2 role"
   type        = list(string)
   default     = []
 }
 
 # ============================================================================
-# Cold Standby Configuration
+# Standby Mode Configuration
 # ============================================================================
 
-variable "preprovisioned_standby" {
-  description = "Create a pre-provisioned stopped instance for faster failover (~30-60s vs ~2-3min)"
-  type        = bool
-  default     = false
+variable "standby_mode" {
+  description = <<-EOT
+    Standby mode for failover:
+    - 'none': No standby, ASG replaces failed instance (~2-3 min failover)
+    - 'cold': Stopped standby in warm pool (~30-60s failover)
+    - 'hot':  Running standby in warm pool (instant failover)
+  EOT
+  type        = string
+  default     = "none"
 }
 
-variable "preprovisioned_standby_state" {
-  description = "State of pre-provisioned standby: 'Stopped' (~30-60s boot) or 'Hibernated' (~10-20s resume)"
+variable "cold_standby_state" {
+  description = "State of cold standby: 'Stopped' (~30-60s) or 'Hibernated' (~10-20s)"
   type        = string
   default     = "Stopped"
 }
